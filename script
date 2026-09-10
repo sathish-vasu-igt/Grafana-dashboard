@@ -1,2 +1,3 @@
 .\New-ServiceObservability.ps1 -ChartPath "C:\Sathish\ACEREST\FloorNet.CardSvc\charts\cardsvc" -SelectorValue "floornet-cardsvc" -All -IncludeMain -MainTitle "Card Service Operations Dashboard"
 
+https://igt-casinosystems.atlassian.net/wiki/spaces/AR/pages/2781413405/Grafana+Dashboard+JSON+Generation+Scripts+Guide?%2Fwiki%2Fspaces%2FAR%2Fpages%2F2781413405%2FGrafana+Dashboard+JSON+Generation+Scripts+Guide=&
