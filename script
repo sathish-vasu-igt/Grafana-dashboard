@@ -1,0 +1,2 @@
+.\New-ServiceObservability.ps1 -ChartPath "C:\Sathish\ACEREST\FloorNet.CardSvc\charts\cardsvc" -SelectorValue "floornet-cardsvc" -All -IncludeMain -MainTitle "Card Service Operations Dashboard"
+

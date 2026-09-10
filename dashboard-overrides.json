@@ -1,0 +1,26 @@
+{
+  "defaults": {
+    "umbrellaChartPath": "",
+    "standaloneChartPath": "",
+    "dashboardSubPath": "dashboard",
+    "selectorLabel": "job",
+    "namespace": "",
+    "features": {
+      "api": true,
+      "auth": true,
+      "authMetric": "",
+      "clients": true,
+      "clientMetric": "",
+      "pmdal": true,
+      "rabbitmq": true,
+      "rabbitmqContainer": "",
+      "rabbitmqLabel": "job",
+      "rabbitmqServiceMetric": "",
+      "redis": true,
+      "redisInstance": "",
+      "redisLabel": "job",
+      "redisServiceMetric": ""
+    }
+  },
+  "overrides": {}
+}
