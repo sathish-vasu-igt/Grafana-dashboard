@@ -385,6 +385,15 @@ function New-MainDashboard {
 
     $sel = ($Services | ForEach-Object { [regex]::Escape($_.Selector) }) -join '|'
     $all = "$Label=~`"$sel`""
+    # Kubernetes probes and scrapes are always 2xx, so they would hold Success Rate at 100% with no real traffic.
+    $noProbes = "exported_endpoint!~`"/health|/metrics`""
+    $req = "$all,$noProbes"
+    # Success % over the dashboard time range (not the last 5m). Counts are the exact sum of scraped increments:
+    # resets add the post-reset value and new series add their first value; a 0 total yields no value.
+    function Get-SuccessRateExpr($s) {
+        $count = { param($f) "(sum(sum_over_time((((http_requests_received_total{$f} - last_over_time(http_requests_received_total{$f}[1h] offset 1m)) >= 0) or (http_requests_received_total{$f} * 1))[`$__range:1m])) or vector(0))" }
+        $okSel = $s + ',code=~"2.."'; "100 * ($(& $count $okSel)) / (($(& $count $s)) > 0)"
+    }
     $ns = if ($Namespace) { "namespace=`"$Namespace`"," } else { "" }
     $apiServices = @($Services | Where-Object { $_.HasApi })
     $pmdalServices = @($Services | Where-Object { $_.PmdalPrefix })
@@ -393,18 +402,19 @@ function New-MainDashboard {
     # Collapsed row: nested panels are hidden until expanded, so per-service detail doesn't
     # visually duplicate the combined rows above it. Row itself only ever costs 1 grid unit.
     function MkCollapsedRow($t, $childPanels) { $script:mid++; $p = @{ id = $script:mid; type = 'row'; title = $t; collapsed = $true; panels = $childPanels; gridPos = @{ h = 1; w = 24; x = 0; y = $script:my } }; $script:my++; return $p }
-    function MkStat($t, $e, $u, $x, $w) { $script:mid++; @{ id = $script:mid; type = 'stat'; title = $t; datasource = $null; targets = @(@{ expr = $e; legendFormat = ''; refId = 'A' }); fieldConfig = @{ defaults = @{ unit = $u } }; gridPos = @{ h = 4; w = $w; x = $x; y = $script:my } } }
+    function MkStat($t, $e, $u, $x, $w, $nv = $null) { $script:mid++; $d = @{ unit = $u }; if ($nv) { $d.noValue = $nv }; @{ id = $script:mid; type = 'stat'; title = $t; datasource = $null; targets = @(@{ expr = $e; legendFormat = ''; refId = 'A' }); fieldConfig = @{ defaults = $d }; gridPos = @{ h = 4; w = $w; x = $x; y = $script:my } } }
     function MkGraph($t, $tg, $u, $x, $w, $h) { $script:mid++; @{ id = $script:mid; type = 'timeseries'; title = $t; datasource = $null; targets = $tg; fieldConfig = @{ defaults = @{ unit = $u; custom = @{ drawStyle = 'line'; lineWidth = 2; fillOpacity = 10 } } }; gridPos = @{ h = $h; w = $w; x = $x; y = $script:my } } }
     function MkTable($t, $e, $x, $w, $h) { $script:mid++; @{ id = $script:mid; type = 'table'; title = $t; datasource = $null; targets = @(@{ expr = $e; legendFormat = ''; refId = 'A'; instant = $true; format = 'table' }); gridPos = @{ h = $h; w = $w; x = $x; y = $script:my } } }
 
     # --- Overview ---
     $panels += MkRow 'Overview - All Services'
-    $panels += MkStat 'Total Request Rate (req/min)' "sum(rate(http_requests_received_total{$all}[5m])) * 60" 'reqps' 0 4
-    $panels += MkStat 'Active Requests Now' "sum(microsoft_aspnetcore_hosting_http_server_active_requests{$all}) or vector(0)" 'short' 4 4
-    $panels += MkStat '5xx Error Rate (req/min)' "(sum(rate(http_requests_received_total{$all,code=~`"5..`"}[5m])) * 60) or vector(0)" 'short' 8 4
-    $panels += MkStat '4xx Client Error Rate (req/min)' "(sum(rate(http_requests_received_total{$all,code=~`"4..`"}[5m])) * 60) or vector(0)" 'short' 12 4
-    $panels += MkStat 'Success Rate %' "100 * sum(rate(http_requests_received_total{$all,code=~`"2..`"}[5m])) / sum(rate(http_requests_received_total{$all}[5m]))" 'percent' 16 4
-    $panels += MkStat 'Total Requests (24h)' "sum(increase(http_requests_received_total{$all}[24h]))" 'short' 20 4
+    $panels += MkStat 'API Request Rate (req/min)' "(sum(rate(http_requests_received_total{$req}[5m])) * 60) or vector(0)" 'reqps' 0 4 '0'
+    $panels += MkStat 'Active Requests Now' "sum(microsoft_aspnetcore_hosting_http_server_active_requests{$all}) or vector(0)" 'short' 4 4 '0'
+    $panels += MkStat '5xx Error Rate (req/min)' "(sum(rate(http_requests_received_total{$all,code=~`"5..`"}[5m])) * 60) or vector(0)" 'short' 8 4 '0'
+    $panels += MkStat '4xx Client Error Rate (req/min)' "(sum(rate(http_requests_received_total{$all,code=~`"4..`"}[5m])) * 60) or vector(0)" 'short' 12 4 '0'
+    $panels += MkStat 'API Success Rate % (time range)' (Get-SuccessRateExpr $req) 'percent' 16 4 'No API traffic'
+    $panels[-1].targets[0].instant = $true
+    $panels += MkStat 'API Requests (24h)' "sum(increase(http_requests_received_total{$req}[24h])) or vector(0)" 'short' 20 4 '0'
     $script:my += 4
 
     # --- Health ---
@@ -447,7 +457,7 @@ function New-MainDashboard {
         $script:my += 8
 
         $panels += MkRow 'API Success vs Failure Comparison'
-        $panels += MkGraph 'Success Rate % by Service' @(@{ expr = "100 * sum by ($Label) (rate(http_requests_received_total{$api, code=~`"2..`"}[5m])) / sum by ($Label) (rate(http_requests_received_total{$api}[5m]))"; legendFormat = "{{$Label}}"; refId = 'A' }) 'percent' 0 12 8
+        $panels += MkGraph 'Success Rate % by Service' @(@{ expr = "100 * sum by ($Label) (rate(http_requests_received_total{$api, $noProbes, code=~`"2..`"}[5m])) / sum by ($Label) (rate(http_requests_received_total{$api, $noProbes}[5m]))"; legendFormat = "{{$Label}}"; refId = 'A' }) 'percent' 0 12 8
         $panels += MkGraph 'Request Volume by Status Code per Service' @(
             @{ expr = "sum by ($Label) (rate(http_requests_received_total{$api, code=~`"2..`"}[5m])) * 60"; legendFormat = "2xx {{$Label}}"; refId = 'A' },
             @{ expr = "sum by ($Label) (rate(http_requests_received_total{$api, code=~`"4..`"}[5m])) * 60"; legendFormat = "4xx {{$Label}}"; refId = 'B' },

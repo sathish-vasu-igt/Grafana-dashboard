@@ -114,13 +114,15 @@ $script:panelId = 1
 function NextId { $script:panelId++; return $script:panelId }
 
 # --- Helper: Create a stat panel ---
-function New-StatPanel($title, $expr, $unit = "short", $gridX = 0, $gridY = 0, $gridW = 4, $gridH = 4, $thresholds = $null) {
+function New-StatPanel($title, $expr, $unit = "short", $gridX = 0, $gridY = 0, $gridW = 4, $gridH = 4, $thresholds = $null, $noValue = $null) {
     $t = if ($thresholds) { $thresholds } else { @(@{color="green";value=$null},@{color="red";value=80}) }
+    $defaults = @{ unit = $unit; thresholds = @{ mode = "absolute"; steps = $t } }
+    if ($noValue) { $defaults.noValue = $noValue }
     @{
         id = NextId; type = "stat"; title = $title
         datasource = $null
         targets = @(@{ expr = $expr; legendFormat = ""; refId = "A" })
-        fieldConfig = @{ defaults = @{ unit = $unit; thresholds = @{ mode = "absolute"; steps = $t } } }
+        fieldConfig = @{ defaults = $defaults }
         gridPos = @{ h = $gridH; w = $gridW; x = $gridX; y = $gridY }
     }
 }
@@ -166,11 +168,20 @@ $y = 0
 $panels += New-Row "Overview — $ServiceName" $y
 $y++
 
+# Kubernetes probes and scrapes are always 2xx, so they would hold Success Rate at 100% with no real traffic.
+$apiReq = "container=`"$ContainerName`",exported_endpoint!~`"/health|/metrics`""
+# Success % over the dashboard time range (not the last 5m). Counts are the exact sum of scraped increments:
+# resets add the post-reset value and new series add their first value; a 0 total yields no value.
+$countExpr = { param($f) "(sum(sum_over_time((((http_requests_received_total{$f} - last_over_time(http_requests_received_total{$f}[1h] offset 1m)) >= 0) or (http_requests_received_total{$f} * 1))[`$__range:1m])) or vector(0))" }
+$okReq = $apiReq + ',code=~"2.."'
+$successExpr = "100 * ($(& $countExpr $okReq)) / (($(& $countExpr $apiReq)) > 0)"
+
 $panels += New-StatPanel "Status" "up{container=`"$ContainerName`"}" "short" 0 $y 3 4 @(@{color="red";value=$null},@{color="green";value=1})
-$panels += New-StatPanel "Request Rate (req/min)" "sum(rate(http_requests_received_total{container=`"$ContainerName`"}[5m])) * 60" "reqps" 3 $y 5 4
-$panels += New-StatPanel "Success Rate %" "100 * sum(rate(http_requests_received_total{container=`"$ContainerName`",code=~`"2..`"}[5m])) / sum(rate(http_requests_received_total{container=`"$ContainerName`"}[5m]))" "percent" 8 $y 4 4 @(@{color="red";value=$null},@{color="yellow";value=95},@{color="green";value=99})
+$panels += New-StatPanel "API Request Rate (req/min)" "(sum(rate(http_requests_received_total{$apiReq}[5m])) * 60) or vector(0)" "reqps" 3 $y 5 4 $null "0"
+$panels += New-StatPanel "API Success Rate % (time range)" $successExpr "percent" 8 $y 4 4 @(@{color="red";value=$null},@{color="yellow";value=95},@{color="green";value=99}) "No API traffic"
+$panels[-1].targets[0].instant = $true
 $panels += New-StatPanel "P95 Latency" "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{container=`"$ContainerName`"}[5m])))" "s" 12 $y 4 4 @(@{color="green";value=$null},@{color="yellow";value=0.5},@{color="red";value=1})
-$panels += New-StatPanel "5xx Errors (5m)" "sum(rate(http_requests_received_total{container=`"$ContainerName`",code=~`"5..`"}[5m])) * 300" "short" 16 $y 4 4 @(@{color="green";value=$null},@{color="red";value=1})
+$panels += New-StatPanel "5xx Errors (5m)" "(sum(rate(http_requests_received_total{container=`"$ContainerName`",code=~`"5..`"}[5m])) * 300) or vector(0)" "short" 16 $y 4 4 @(@{color="green";value=$null},@{color="red";value=1}) "0"
 $panels += New-StatPanel "Active Requests" "sum(microsoft_aspnetcore_hosting_http_server_active_requests{container=`"$ContainerName`"})" "short" 20 $y 4 4
 $y += 4
 

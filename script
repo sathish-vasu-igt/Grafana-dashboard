@@ -1,3 +1,24 @@
+# Basic package
+.\Export-DashboardToolkit.ps1 -Zip
+
+# Pre-seed the recipient's chart path and namespace
+.\Export-DashboardToolkit.ps1 -ChartPath "C:\charts\myumbrella" -Namespace "acme-prod" -Zip
+
+
+
+cd C:\wherever\dashboard-toolkit
+.\New-ServiceObservability.ps1 -ChartPath "C:\Sathish\Advantage-Data-Interfaces.ACERESTCore\charts" -All -DryRun
+
+
+# point at the chart itself with the real job name
+# IMPORTANT: run from the Grafana source folder, NOT dist\dashboard-toolkit.
+# dist\dashboard-toolkit\dashboard-overrides.json is the SANITISED export (blank
+# metric names) meant for other teams - running from there silently drops the
+# Auth/PMDAL/RabbitMQ/Client rows and skips the main dashboard.
+cd 'C:\Sathish\Api Integration automation\Grafana'
 .\New-ServiceObservability.ps1 -ChartPath "C:\Sathish\ACEREST\FloorNet.CardSvc\charts\cardsvc" -SelectorValue "floornet-cardsvc" -All -IncludeMain -MainTitle "Card Service Operations Dashboard"
 
-https://igt-casinosystems.atlassian.net/wiki/spaces/AR/pages/2781413405/Grafana+Dashboard+JSON+Generation+Scripts+Guide?%2Fwiki%2Fspaces%2FAR%2Fpages%2F2781413405%2FGrafana+Dashboard+JSON+Generation+Scripts+Guide=&
+# or confirm against Prometheus first
+.\New-ServiceObservability.ps1 -ChartPath "...\charts" -All -DryRun -PrometheusUrl http://<prometheus>:9090
+
+# Guide: https://igt-casinosystems.atlassian.net/wiki/spaces/AR/pages/2781413405/Grafana+Dashboard+JSON+Generation+Scripts+Guide
